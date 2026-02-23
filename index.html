@@ -68,6 +68,20 @@
             transition: background 0.2s;
         }
         button:hover { background: #7dd3fc; }
+        button:disabled {
+            background: #334155;
+            color: #64748b;
+            cursor: not-allowed;
+        }
+
+        #status {
+            margin-top: 14px;
+            font-size: 0.85rem;
+            color: #94a3b8;
+            min-height: 20px;
+            text-align: center;
+        }
+        #status.error { color: #f87171; }
     </style>
 </head>
 <body>
@@ -75,7 +89,8 @@
     <h1>🗑️ Trash Detection</h1>
     <p class="subtitle">Powered by Teachable Machine</p>
 
-    <button type="button" onclick="init()">Start Camera</button>
+    <button type="button" id="startBtn" onclick="init()">Start Camera</button>
+    <div id="status"></div>
     <div id="webcam-container" style="margin-top: 20px;"></div>
     <div id="label-container"></div>
 
@@ -84,43 +99,78 @@
     <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
 
     <script type="text/javascript">
-        // 🔁 REPLACE THIS with your own Teachable Machine model URL
-        const MODEL_URL = https://teachablemachine.withgoogle.com/models/CY4U4Bmvm/
+        // ✅ FIX 1: MODEL_URL must be a string (wrapped in quotes)
+        const MODEL_URL = "https://teachablemachine.withgoogle.com/models/CY4U4Bmvm/";
 
         let model, webcam, labelContainer, maxPredictions;
 
+        function setStatus(msg, isError = false) {
+            const el = document.getElementById("status");
+            el.textContent = msg;
+            el.className = isError ? "error" : "";
+        }
+
         async function init() {
-            const modelURL = MODEL_URL + "model.json";
-            const metadataURL = MODEL_URL + "metadata.json";
+            const btn = document.getElementById("startBtn");
+            btn.disabled = true;
+            setStatus("Loading model...");
 
-            // Load the model
-            model = await tmImage.load(modelURL, metadataURL);
-            maxPredictions = model.getTotalClasses();
+            try {
+                const modelURL = MODEL_URL + "model.json";
+                const metadataURL = MODEL_URL + "metadata.json";
 
-            // Setup webcam
-            const flip = true; // flip for selfie-view
-            webcam = new tmImage.Webcam(400, 400, flip);
-            await webcam.setup();
-            await webcam.play();
-            window.requestAnimationFrame(loop);
+                // Load the model
+                model = await tmImage.load(modelURL, metadataURL);
+                maxPredictions = model.getTotalClasses();
 
-            // Append webcam canvas
-            document.getElementById("webcam-container").appendChild(webcam.canvas);
+                setStatus("Requesting camera access...");
 
-            // Build label rows
-            labelContainer = document.getElementById("label-container");
-            labelContainer.innerHTML = ""; // clear previous
-            for (let i = 0; i < maxPredictions; i++) {
-                const row = document.createElement("div");
-                row.className = "label-row";
-                row.innerHTML = `
-                    <div class="label-name">
-                        <span class="label-text">Loading...</span>
-                        <span class="label-pct">0%</span>
-                    </div>
-                    <div class="bar-bg"><div class="bar-fill" style="width:0%"></div></div>
-                `;
-                labelContainer.appendChild(row);
+                // ✅ FIX 2: Wrap webcam setup in try/catch so camera errors are visible
+                try {
+                    const flip = true;
+                    webcam = new tmImage.Webcam(400, 400, flip);
+                    await webcam.setup(); // asks for camera permission
+                    await webcam.play();
+                } catch (camErr) {
+                    // ✅ FIX 3: Show a clear message if camera is blocked or unavailable
+                    if (camErr.name === "NotAllowedError" || camErr.name === "PermissionDeniedError") {
+                        setStatus("❌ Camera permission denied. Please allow camera access in your browser settings and try again.", true);
+                    } else if (camErr.name === "NotFoundError") {
+                        setStatus("❌ No camera found on this device.", true);
+                    } else {
+                        setStatus("❌ Camera error: " + camErr.message, true);
+                    }
+                    btn.disabled = false;
+                    return;
+                }
+
+                window.requestAnimationFrame(loop);
+
+                // Append webcam canvas
+                document.getElementById("webcam-container").appendChild(webcam.canvas);
+
+                // Build label rows
+                labelContainer = document.getElementById("label-container");
+                labelContainer.innerHTML = "";
+                for (let i = 0; i < maxPredictions; i++) {
+                    const row = document.createElement("div");
+                    row.className = "label-row";
+                    row.innerHTML = `
+                        <div class="label-name">
+                            <span class="label-text">Loading...</span>
+                            <span class="label-pct">0%</span>
+                        </div>
+                        <div class="bar-bg"><div class="bar-fill" style="width:0%"></div></div>
+                    `;
+                    labelContainer.appendChild(row);
+                }
+
+                btn.textContent = "Camera Running";
+                setStatus("✅ Detection active.");
+
+            } catch (err) {
+                setStatus("❌ Failed to load model. Check your MODEL_URL or internet connection. " + err.message, true);
+                btn.disabled = false;
             }
         }
 
